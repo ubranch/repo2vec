@@ -9,14 +9,18 @@ import os
 import time
 
 import configargparse
+from dotenv import load_dotenv
 from ir_measures import MAP, MRR, P, Qrel, R, Rprec, ScoredDoc, calc_aggregate, nDCG
 
 import sage.config
+from sage.data_manager import GitHubRepoManager
 from sage.retriever import build_retriever_from_args
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
+
+load_dotenv()
 
 
 def main():
@@ -33,18 +37,17 @@ def main():
     parser.add(
         "--logs-dir",
         default=None,
-        help="Path where to output predictions and metrics. Optional, since metrics are also printed to console."
+        help="Path where to output predictions and metrics. Optional, since metrics are also printed to console.",
     )
+
     parser.add("--max-instances", default=None, type=int, help="Maximum number of instances to process.")
 
-    sage.config.add_config_args(parser)
-    sage.config.add_embedding_args(parser)
-    sage.config.add_vector_store_args(parser)
-    sage.config.add_reranking_args(parser)
+    validator = sage.config.add_all_args(parser)
     args = parser.parse_args()
-    sage.config.validate_vector_store_args(args)
+    validator(args)
 
-    retriever = build_retriever_from_args(args)
+    repo_manager = GitHubRepoManager.from_args(args)
+    retriever = build_retriever_from_args(args, repo_manager)
 
     with open(args.benchmark, "r") as f:
         benchmark = json.load(f)
@@ -69,12 +72,10 @@ def main():
         item["retrieved"] = []
         for doc_idx, doc in enumerate(retrieved):
             # The absolute value of the scores below does not affect the metrics; it merely determines the ranking of
-            # the retrived documents. The key of the score varies depending on the underlying retriever. If there's no
+            # the retrieved documents. The key of the score varies depending on the underlying retriever. If there's no
             # score, we use 1/(doc_idx+1) since it preserves the order of the documents.
             score = doc.metadata.get("score", doc.metadata.get("relevance_score", 1 / (doc_idx + 1)))
-            retrieved_docs.append(
-                ScoredDoc(query_id=query_id, doc_id=doc.metadata["file_path"], score=score)
-            )
+            retrieved_docs.append(ScoredDoc(query_id=query_id, doc_id=doc.metadata["file_path"], score=score))
             # Update the output dictionary with the retrieved documents.
             item["retrieved"].append({"file_path": doc.metadata["file_path"], "score": score})
 
@@ -84,7 +85,6 @@ def main():
     print("Calculating metrics...")
     results = calc_aggregate([Rprec, P @ 1, R @ 3, nDCG @ 3, MAP, MRR], golden_docs, retrieved_docs)
     results = {str(key): value for key, value in results.items()}
-
     if args.logs_dir:
         if not os.path.exists(args.logs_dir):
             os.makedirs(args.logs_dir)
@@ -99,9 +99,9 @@ def main():
         with open(output_file, "w") as f:
             json.dump(out_data, f, indent=4)
 
-        for key in sorted(results.keys()):
-            print(f"{key}: {results[key]}")
-        print(f"Predictions and metrics saved to {output_file}")
+    for key in sorted(results.keys()):
+        print(f"{key}: {results[key]}")
+    print(f"Predictions and metrics saved to {output_file}")
 
 
 if __name__ == "__main__":

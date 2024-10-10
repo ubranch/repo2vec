@@ -1,4 +1,19 @@
-"""Script to call retrieval on the Kaggle dataset."""
+"""Script to call retrieval on the Kaggle dataset.
+
+Steps:
+1. Make sure that your repository is already indexed. You can find instructions in the README for how to run the `sage-index` command.
+2. Download the test file from the Kaggle competition (https://www.kaggle.com/competitions/code-retrieval-for-hugging-face-transformers/data). You will pass the path to this file via the --benchmark flag below.
+3. Run this script:
+```
+# After you cloned the repository:
+cd sage
+pip install -e .
+
+# Run the actual retrieval script. Your flags may vary, but this is one example:
+python benchmarks/retrieval/retrieve_kaggle.py --benchmark=/path/to/kaggle/test/file.csv --mode=remote --pinecone-index-name=your-index --index-namespace=your-namespace
+```
+To see a full list of flags, checkout config.py (https://github.com/Storia-AI/sage/blob/main/sage/config.py).
+"""
 
 import csv
 import json
@@ -22,6 +37,7 @@ def main():
     parser.add("--output-file", required=True, help="Path to the output file with predictions.")
 
     sage.config.add_config_args(parser)
+    sage.config.add_llm_args(parser)  # Necessary for --multi-query-retriever, which calls an LLM.
     sage.config.add_embedding_args(parser)
     sage.config.add_vector_store_args(parser)
     sage.config.add_reranking_args(parser)
@@ -40,7 +56,9 @@ def main():
 
         retrieved = retriever.invoke(item["question"])
         # Sort by score in descending order.
-        retrieved = sorted(retrieved, key=lambda doc: doc.metadata.get("score", doc.metadata.get("relevance_score")), reverse=True)
+        retrieved = sorted(
+            retrieved, key=lambda doc: doc.metadata.get("score", doc.metadata.get("relevance_score")), reverse=True
+        )
         # Keep top 3, since the Kaggle competition only evaluates the top 3.
         retrieved = retrieved[:3]
         retrieved_filenames = [doc.metadata["file_path"] for doc in retrieved]

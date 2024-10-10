@@ -8,6 +8,9 @@ on:
     branches:
       - main
 
+permissions:
+  contents: write
+
 jobs:
   format-check:
     runs-on: ubuntu-latest
@@ -33,3 +36,29 @@ jobs:
     - name: Run black
       run: |
         black --line-length=120 .
+
+    - name: Configure Git
+      run: |
+        git config user.name "GitHub Actions"
+        git config user.email "actions@github.com"
+
+    - name: Check if any files were modified
+      run: |
+        git diff --exit-code || git commit -am "Auto-format code with isort and black"
+
+    - name: Pull latest changes
+      run: |
+        if [ "${{ github.event_name }}" = "pull_request" ]; then
+          git pull --no-rebase origin ${{ github.event.pull_request.head.ref }}
+        else
+          git pull --no-rebase origin main
+        fi
+
+    - name: Push changes
+      if: success()
+      run: |
+        if [ "${{ github.event_name }}" = "pull_request" ]; then
+          git push origin HEAD:${{ github.event.pull_request.head.ref }};
+        else
+          git push origin HEAD:main;
+        fi
